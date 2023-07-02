@@ -66,7 +66,7 @@ async function createOrUpdateEnrollmentWithAddress(params: CreateOrUpdateEnrollm
   const result = await request.get(`${process.env.VIA_CEP_API}/${address.cep}/json/`);
 
   if (result.status === 400) {
-    throw requestError(result.status, result.statusText);
+    throw notFoundError();
   }
   if (!result.data) {
     throw notFoundError();
