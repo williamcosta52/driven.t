@@ -1,22 +1,37 @@
 import { Address, Enrollment } from '@prisma/client';
 import { request } from '@/utils/request';
-import { invalidDataError, notFoundError } from '@/errors';
+import { invalidDataError, notFoundError, requestError } from '@/errors';
 import addressRepository, { CreateAddressParams } from '@/repositories/address-repository';
 import enrollmentRepository, { CreateEnrollmentParams } from '@/repositories/enrollment-repository';
 import { exclude } from '@/utils/prisma-utils';
+import { ViaCEPAddress } from '@/protocols';
+import { type } from 'os';
+import { cepValidationSchema } from '@/schemas';
 
-// TODO - Receber o CEP por parâmetro nesta função.
-async function getAddressFromCEP() {
+async function getAddressFromCEP(cep: string): Promise<ViaCEPAddress> {
+  const result = await request.get(`${process.env.VIA_CEP_API}/${cep}/json/`);
 
-  // FIXME: está com CEP fixo!
-  const result = await request.get(`${process.env.VIA_CEP_API}/37440000/json/`);
-
+  if (result.status === 400) {
+    throw requestError(result.status, result.statusText);
+  }
   if (!result.data) {
     throw notFoundError();
   }
+  if (result.data.erro) {
+    throw notFoundError();
+  }
 
-  // FIXME: não estamos interessados em todos os campos
-  return result.data;
+  type NewAddress = Omit<ViaCEPAddress, 'cep' | 'ibge' | 'gia' | 'ddd' | 'siafi'>;
+
+  const modifiedAddress: NewAddress = {
+    logradouro: result.data.logradouro,
+    complemento: result.data.complemento,
+    bairro: result.data.bairro,
+    cidade: result.data.localidade,
+    uf: result.data.uf,
+  };
+
+  return modifiedAddress;
 }
 
 async function getOneWithAddressByUserId(userId: number): Promise<GetOneWithAddressByUserIdResult> {
@@ -48,6 +63,17 @@ async function createOrUpdateEnrollmentWithAddress(params: CreateOrUpdateEnrollm
   const address = getAddressForUpsert(params.address);
 
   // TODO - Verificar se o CEP é válido antes de associar ao enrollment.
+  const result = await request.get(`${process.env.VIA_CEP_API}/${address.cep}/json/`);
+
+  if (result.status === 400) {
+    throw requestError(result.status, result.statusText);
+  }
+  if (!result.data) {
+    throw notFoundError();
+  }
+  if (result.data.erro) {
+    throw notFoundError();
+  }
 
   const newEnrollment = await enrollmentRepository.upsert(params.userId, enrollment, exclude(enrollment, 'userId'));
 
